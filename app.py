@@ -1,86 +1,100 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
+from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 
+# --- Page Configuration ---
+st.set_page_config(
+    page_title="Titanic Survival Predictor",
+    layout="centered"
+)
 
-st.set_page_config(page_title="Titanic Survival Predictor", layout="centered")
+# --- Dynamic File Path Resolution ---
+# Yeh line automatically current directory ka path nikal leti hai
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATASET_PATH = os.path.join(BASE_DIR, "dataset", "titanic.csv")
 
-st.title("Titanic Survival Prediction System")
-st.write("Predict whether a passenger would survive the Titanic disaster based on demographic and ticket info.")
-
-@st.cache_data
+# --- Model Training Function with Caching ---
+@st.cache_resource
 def load_and_train_model():
-   
-    df = pd.read_csv("/dataset/titanic.csv")
-    
-    # Preprocessing
-    df['Embarked'] = df['Embarked'].fillna(df['Embarked'].mode()[0])
-    df['has_cabin'] = df['Cabin'].notnull().astype(int)
-    
-    df['Title'] = df['Name'].str.extract(' ([A-Za-z]+)\.', expand=False)
-    df['Title'] = df['Title'].replace(['Lady', 'Countess','Capt', 'Col', 'Don', 'Dr', 
-                                       'Major', 'Rev', 'Sir', 'Jonkheer', 'Dona'], 'Rare')
-    df['Title'] = df['Title'].replace(['Mlle', 'Ms'], 'Miss')
-    df['Title'] = df['Title'].replace('Mme', 'Mrs')
-    
-    df['Age'] = df.groupby(['Pclass', 'Sex'])['Age'].transform(lambda x: x.fillna(x.median()))
-    df['family_size'] = df['SibSp'] + df['Parch'] + 1
-    df['is_alone'] = (df['family_size'] == 1).astype(int)
-    
-    dfCleaned = df.drop(columns=['PassengerId', 'Ticket', 'Cabin', 'Name'])
-    
-    # One-Hot Encoding
-    df_encoded = pd.get_dummies(dfCleaned, columns=['Sex', 'Embarked', 'Title'], drop_first=True)
-    
-    X = df_encoded.drop(columns=['Survived'])
-    y = df_encoded['Survived']
-    
-    # Train Logistic Regression Model
-    model = LogisticRegression(max_iter=1000, random_state=42)
-    model.fit(X, y)
-    
-    return model, X.columns
+    # Dataset Load
+    if not os.path.exists(DATASET_PATH):
+        st.error(f"Dataset missing! Path checked: {DATASET_PATH}")
+        st.stop()
+        
+    df = pd.read_csv(DATASET_PATH)
 
-model, feature_columns = load_and_train_model()
+    # Data Preprocessing
+    # Fill missing values
+    df['Age'] = df['Age'].fillna(df['Age'].median())
+    df['Fare'] = df['Fare'].fillna(df['Fare'].median())
+    if 'Embarked' in df.columns:
+        df['Embarked'] = df['Embarked'].fillna(df['Embarked'].mode()[0])
 
-# Sidebar User Inputs
-st.sidebar.header("Enter Passenger Details")
+    # Convert Categorical variables to Numeric
+    if 'Sex' in df.columns:
+        df['Sex'] = df['Sex'].map({'male': 0, 'female': 1})
 
-pclass = st.sidebar.selectbox("Passenger Class (Pclass)", [1, 2, 3], index=2)
-sex = st.sidebar.selectbox("Gender", ["male", "female"])
-age = st.sidebar.slider("Age", 0, 80, 25)
-sibsp = st.sidebar.number_input("Siblings / Spouses Aboard (SibSp)", 0, 10, 0)
-parch = st.sidebar.number_input("Parents / Children Aboard (Parch)", 0, 10, 0)
-fare = st.sidebar.slider("Fare Paid ($)", 0.0, 500.0, 15.0)
-embarked = st.sidebar.selectbox("Port of Embarkation", ["S", "C", "Q"])
-has_cabin = st.sidebar.selectbox("Has Cabin Assigned?", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
-title = st.sidebar.selectbox("Title", ["Mr", "Mrs", "Miss", "Master", "Rare"])
+    # Select Features & Target
+    features = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
+    X = df[features]
+    y = df['Survived']
 
-# Predict Button
-if st.button("Predict Survival Odds"):
-    input_dict = {
-        'Pclass': pclass,
-        'Age': age,
-        'SibSp': sibsp,
-        'Parch': parch,
-        'Fare': fare,
-        'has_cabin': has_cabin,
-        'family_size': sibsp + parch + 1,
-        'is_alone': 1 if (sibsp + parch) == 0 else 0,
-        f'Sex_{sex}': 1,
-        f'Embarked_{embarked}': 1,
-        f'Title_{title}': 1
-    }
+    # Train-Test Split & Scaling
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     
-    input_df = pd.DataFrame([input_dict])
-    input_encoded = input_df.reindex(columns=feature_columns, fill_value=0)
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+
+    # Train Model
+    model = LogisticRegression()
+    model.fit(X_train_scaled, y_train)
+
+    return model, scaler, features
+
+# Load model and scaler
+model, scaler, features = load_and_train_model()
+
+# --- Streamlit User Interface ---
+st.title("Titanic Survival Prediction")
+st.write("Enter passenger details below to predict their chance of survival.")
+
+st.markdown("---")
+
+# User Inputs
+col1, col2 = st.columns(2)
+
+with col1:
+    pclass = st.selectbox("Passenger Class (Pclass)", [1, 2, 3], index=2, help="1 = 1st Class, 2 = 2nd Class, 3 = 3rd Class")
+    sex = st.selectbox("Gender", ["Male", "Female"])
+    age = st.slider("Age", min_value=1, max_value=80, value=25)
+
+with col2:
+    sibsp = st.number_input("Siblings/Spouses Aboard (SibSp)", min_value=0, max_value=10, value=0)
+    parch = st.number_input("Parents/Children Aboard (Parch)", min_value=0, max_value=10, value=0)
+    fare = st.number_input("Ticket Fare ($)", min_value=0.0, max_value=500.0, value=32.2)
+
+# Convert Gender to numeric format matching training logic
+sex_numeric = 1 if sex == "Female" else 0
+
+st.markdown("---")
+
+# Prediction Trigger Button
+if st.button("Predict Survival", type="primary"):
+    # Input DataFrame
+    input_data = pd.DataFrame([[pclass, sex_numeric, age, sibsp, parch, fare]], columns=features)
     
-    prediction = model.predict(input_encoded)[0]
-    prob = model.predict_proba(input_encoded)[0]
-    
-    st.subheader("Prediction Result:")
+    # Scale inputs & Predict
+    input_scaled = scaler.transform(input_data)
+    prediction = model.predict(input_scaled)[0]
+    prediction_proba = model.predict_proba(input_scaled)[0]
+
+    # Display Result
     if prediction == 1:
-        st.success(f"**Survived!** (Probability: {prob[1]*100:.2f}%)")
+        st.success(f"**Survived!** (Confidence: {prediction_proba[1]*100:.1f}%)")
+        st.balloons()
     else:
-        st.error(f"**Did Not Survive** (Probability: {prob[0]*100:.2f}%)")
+        st.error(f"**Did Not Survive** (Confidence: {prediction_proba[0]*100:.1f}%)")
