@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 
-st.set_page_config(page_title="Titanic Survival Predictor", page_icon="🚢", layout="centered")
+st.set_page_config(page_title="Titanic Survival Predictor", layout="centered")
 
 st.title("Titanic Survival Prediction System")
 st.write("Predict whether a passenger would survive the Titanic disaster based on demographic and ticket info.")
@@ -12,7 +12,7 @@ st.write("Predict whether a passenger would survive the Titanic disaster based o
 @st.cache_data
 def load_and_train_model():
    
-    df = pd.read_csv("/home/ankita/Documents/AIML/Titanic Survival Prediction/dataset/try.csv")
+    df = pd.read_csv("/dataset/titanic.csv")
     
     # Preprocessing
     df['Embarked'] = df['Embarked'].fillna(df['Embarked'].mode()[0])
